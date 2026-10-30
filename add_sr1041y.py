@@ -93,8 +93,16 @@ patch("base-files/lib/preinit/09_mount_factory_data", "preinit_mount_factory_par
 # itself (linux,ubi in DTS), read-only because the partition is read-only, so
 # nothing here can write to flash.
 preinit_mount_factory_ubifs() {
-	mkdir -p /tmp/factory
-	mount -t ubifs -o ro ubi:factory /tmp/factory
+	local idx=$(find_mtd_index config) d
+
+	# "ubi:NAME" only looks at ubi0, which is the system's own UBI once
+	# AlphaWRT boots from flash: mount through the device "config" sits on
+	for d in /sys/class/ubi/ubi[0-9]*; do
+		[ "$(cat "$d/mtd_num" 2>/dev/null)" = "$idx" ] || continue
+		mkdir -p /tmp/factory
+		mount -t ubifs -o ro "${d##*/}:factory" /tmp/factory
+		return
+	done
 }
 
 """, "preinit_mount_factory_ubifs()")
@@ -105,6 +113,27 @@ patch("base-files/lib/preinit/09_mount_factory_data",
 		preinit_mount_factory_ubifs
 		;;
 """, "\tfiberhome,sr1041y)\n\t\tpreinit_mount_factory_ubifs")
+
+patch("en7528/base-files/lib/upgrade/platform.sh", "  tplink,xc220-g3v)",
+"""  fiberhome,sr1041y)
+    # AlphaWRT lives in bank B. The free bootbase loads the kernel trx from
+    # UBI volume ID 0 of the bank; create it static with that ID, as stock
+    # does, rather than letting nand.sh make a dynamic one.
+    CI_UBIPART="KernelB"
+    CI_KERNPART="ubi_kernel"
+    ubimkvol() {
+      case " $* " in
+      *" -N ubi_kernel "*) command ubimkvol "$@" -n 0 -t static ;;
+      *) command ubimkvol "$@" ;;
+      esac
+    }
+    nand_do_upgrade "$1"
+    ;;
+""", "  fiberhome,sr1041y)")
+
+bb = air / "en7528/base-files/usr/sbin/alphawrt-bootbank"
+write("en7528/base-files/usr/sbin/alphawrt-bootbank", (here / "files/alphawrt-bootbank").read_text())
+bb.chmod(0o755)
 
 write("en7528/base-files/lib/preinit/79_sr1041y_factory", r'''# FiberHome SR1041Y: copy the Wi-Fi calibration out of the "factory" volume,
 # which 09_mount_factory_data mounts read-only at /tmp/factory.

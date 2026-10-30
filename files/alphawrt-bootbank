@@ -1,0 +1,126 @@
+#!/bin/sh
+# Choose which flash bank the free bootbase boots next on the FiberHome
+# SR1041Y. Same interface and output as the GN630V tool, so the AlphaWRT UI
+# (System -> Firmware banks) works unchanged.
+#
+#   alphawrt-bootbank          show the running bank, the next-boot bank and
+#                              what each bank holds
+#   alphawrt-bootbank stock    boot the other bank (stock) from the next boot
+#   alphawrt-bootbank a|b      boot bank A or B from the next boot
+#
+# The bootbase reads a 16-byte boot flag record from bank A's UBI volumes 3
+# (ubi_flagA) and 4 (ubi_flagB): byte 0 = kernel bank (0 = A, 1 = B), then
+# zeros, then the JAMCRC of bytes 0-11, big-endian. It loads the kernel trx
+# from UBI volume 0 of that bank and falls back to the other bank if its CRC
+# is wrong. See BANK-FORMAT.md.
+
+. /lib/functions.sh
+
+[ "$(board_name)" = "fiberhome,sr1041y" ] || { echo "not an SR1041Y" >&2; exit 1; }
+
+A_MTD=$(find_mtd_index KernelA)
+B_MTD=$(find_mtd_index KernelB)
+TMPDEV=6
+
+# the two possible records (rootfs/app bytes stay 0, as stock writes them)
+flag_record() {
+	case "$1" in
+	a) printf '\000\000\000\000\000\000\000\000\000\000\000\000\204\052\071\220' ;;
+	b) printf '\001\000\000\000\000\000\000\000\000\000\000\000\037\217\165\377' ;;
+	esac
+}
+
+# ubi device number a given mtd is attached as, if any
+ubi_of_mtd() {
+	local d
+	for d in /sys/class/ubi/ubi[0-9]*; do
+		[ -f "$d/mtd_num" ] && [ "$(cat "$d/mtd_num")" = "$1" ] && { echo "${d##*/ubi}"; return 0; }
+	done
+	return 1
+}
+
+# run "$@" with bank A's UBI attached, as /dev/ubi$A_UBI
+with_bank_a() {
+	local attached=
+	A_UBI=$(ubi_of_mtd "$A_MTD") || {
+		ubiattach -m "$A_MTD" -d $TMPDEV >/dev/null 2>&1 || return 1
+		A_UBI=$TMPDEV attached=1
+	}
+	"$@"; local rc=$?
+	[ -n "$attached" ] && ubidetach -d $TMPDEV >/dev/null 2>&1
+	return $rc
+}
+
+read_next() {
+	case "$(head -c 1 "/dev/ubi${A_UBI}_3" | hexdump -e '1/1 "%d"')" in
+	0) echo a ;;
+	1) echo b ;;
+	*) echo "?" ;;
+	esac
+}
+
+write_flag() {
+	[ "$(cat "/sys/class/ubi/ubi${A_UBI}_3/name")" = ubi_flagA ] || return 1
+	[ "$(cat "/sys/class/ubi/ubi${A_UBI}_4/name")" = ubi_flagB ] || return 1
+	flag_record "$1" > /tmp/.bootflag
+	ubiupdatevol "/dev/ubi${A_UBI}_3" /tmp/.bootflag &&
+	ubiupdatevol "/dev/ubi${A_UBI}_4" /tmp/.bootflag
+	local rc=$?
+	rm -f /tmp/.bootflag
+	return $rc
+}
+
+# version string of the kernel trx in UBI volume 0 of a bank
+bank_holds() {
+	local mtd dev attached= magic version
+	[ "$1" = a ] && mtd=$A_MTD || mtd=$B_MTD
+	dev=$(ubi_of_mtd "$mtd") || {
+		ubiattach -m "$mtd" -d $((TMPDEV + 1)) >/dev/null 2>&1 || { echo "no UBI"; return 1; }
+		dev=$((TMPDEV + 1)) attached=1
+	}
+	magic=$(head -c 4 "/dev/ubi${dev}_0" 2>/dev/null)
+	case "$magic" in
+	HDR0|HDR2) version=$(dd if="/dev/ubi${dev}_0" bs=1 skip=16 count=31 2>/dev/null | tr -d '\0\n') ;;
+	esac
+	[ -n "$attached" ] && ubidetach -d $((TMPDEV + 1)) >/dev/null 2>&1
+	[ -n "$version" ] || { echo "no bootable image"; return 1; }
+	echo "$version"
+}
+
+# the bank the root filesystem came from; empty on a RAM boot. AlphaWRT only
+# runs from bank B (bank A keeps the stock firmware), with its squashfs root
+# on the ubiblock of bank B's "rootfs" volume.
+running_bank() {
+	local b
+	b=$(ubi_of_mtd "$B_MTD") || return 0
+	grep -qs '^/dev/root ' /proc/mounts && [ -b "/dev/ubiblock${b}_1" ] && echo b
+}
+
+running=$(running_bank)
+next=$(with_bank_a read_next) || next="?"
+
+case "$1" in
+"")
+	echo "running:   bank ${running:-? (RAM boot)}"
+	echo "next boot: bank $next"
+	for b in a b; do
+		echo "bank $b:    $(bank_holds $b)"
+	done
+	;;
+stock)
+	[ -n "$running" ] || { echo "not booted from flash" >&2; exit 1; }
+	[ "$running" = a ] && other=b || other=a
+	holds=$(bank_holds $other) || { echo "bank $other: $holds, not switching" >&2; exit 1; }
+	with_bank_a write_flag $other || { echo "could not write the boot flag" >&2; exit 1; }
+	echo "next boot: bank $other ($holds). Reboot to switch."
+	;;
+a|b)
+	holds=$(bank_holds "$1") || { echo "bank $1: $holds, not switching" >&2; exit 1; }
+	with_bank_a write_flag "$1" || { echo "could not write the boot flag" >&2; exit 1; }
+	echo "next boot: bank $1 ($holds). Reboot to switch."
+	;;
+*)
+	echo "usage: $0 [stock|a|b]" >&2
+	exit 1
+	;;
+esac

@@ -148,7 +148,14 @@
 				reg = <0x200000 0x2800000>;
 			};
 
+			/*
+			 * AlphaWRT lives in bank B, in the stock bank format: the
+			 * bootbase loads the kernel trx from UBI volume ID 0; the
+			 * kernel attaches this UBI and mounts volume "rootfs".
+			 * Bank A stays stock; its UBI is not attached at boot.
+			 */
 			partition@2a00000 {
+				compatible = "linux,ubi";
 				label = "KernelB";
 				reg = <0x2a00000 0x2800000>;
 			};

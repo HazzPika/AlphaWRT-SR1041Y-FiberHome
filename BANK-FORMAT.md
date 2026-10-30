@@ -41,17 +41,34 @@ Both stock banks are byte-identical.
 | 0x7c | 0x80002000 (LE) | load address (free bootbase) |
 
 ## Boot flag record (`ubi_flagA` / `ubi_flagB`)
-16 bytes, big-endian: `u32 kernel; u32 rootfs; u32 app; u32 crc;`
-with **crc = JAMCRC of the first 12 bytes** (verified: all-zero flags give
-0x842a3990, the value stored and printed by the bootbase).
-`kernel`/`rootfs`/`app` = 0 selects bank A. Bootbase messages:
+16 bytes: byte 0 = kernel bank (0 = A, 1 = B), byte 1 = rootfs, byte 2 = app,
+bytes 3-11 = 0, bytes 12-15 = **JAMCRC of bytes 0-11, big-endian**. Verified:
+the all-zero record gives 0x842a3990, the value stored on stock units; the
+bank-B record is `01 00 … 00 1f 8f 75 ff`. Bootbase messages:
 `get boot flag from flag A/B Error`, `ERR: boot flag crc Error!`.
 
-## Checks the bootbase makes (from its strings)
-- boot flag CRC (above)
-- kernel CRC per bank: `Kernel A CRC Error!`, `kernel B CRC Error!`,
-  `Kernel A && B CRC Error!`, then `#### Kernel CRC check right .`
-- `bootflag_set <kernel|rootfs> <value>` / `bootflag_get` at `bldr>`
+## How the bootbase picks a bank (from its disassembly)
+- It scans bank A's UBI with its own minimal scanner (PEB 0x10-0x14f; bank B
+  is PEB 0x150-0x28f) and reads the flag record from **bank A only**:
+  volume ID 3, then volume ID 4 if that fails. A bad record CRC means all
+  flags 0 (bank A).
+- Volumes are found **by ID, not name**: kernel = ID 0 (at most 42 LEBs),
+  flags = IDs 3/4, plus the layout volume. Bank B needs only ID 0.
+- Kernel byte 1: load bank B's ID 0 to 0x819fff00 and check its CRC; on a CRC
+  error, fall back to bank A. Kernel byte 0: the same with A first, B as
+  fallback. Both bad: hang.
+- The kernel CRC check (`fh_check_kernel_crc`) reads `total length` (0x08) and
+  `crc` (0x0c) from the 256-byte header and compares the CRC-32 without final
+  XOR (JAMCRC) of `length - 0x100` payload bytes. **The magic is not checked**:
+  `HDR0` (stock) and `HDR2` (OpenWrt's `tclinux-trx.sh`) both boot.
+- The LZMA payload is decompressed to 0x80002000; the flag record is copied to
+  0x80001000 for the kernel.
+- `bootflag_set` at `bldr>` erases and writes 0x1a0 bytes at flash 0x80000 (a
+  separate "platform flag" area); the UBI record overrides it, so it does not
+  pick the bank. `flag_reset` and `flag_get` are empty stubs.
+
+A kernel that boots but then hangs is not caught by the CRC fallback: recover
+with the UART (RAM boot, then select bank A).
 
 ## Bootbase web upload (`httpd` at `bldr>`)
 Accepts a FiberHome "multi image" package and writes it to flash. The package
@@ -59,7 +76,15 @@ header is verified for `hwcfg` (SR1041Y = 0x10001003), `cpu_type`,
 `product_type`, `crc_head` and `crc_data`. Format not yet reconstructed; this
 is the most user-friendly install path once it is.
 
-## Not yet confirmed
-- Whether the bootbase also validates `ubi_rootfs`/`ubi_fhapp`, or only the
-  kernel volume.
-- How `bootflag_set` maps to the flag records of each bank.
+## AlphaWRT in bank B (tested)
+| Vol ID | Name | Type | Content |
+|---|---|---|---|
+| 0 | `ubi_kernel` | static | kernel trx (HDR2, LZMA, load 0x80002000) |
+| 1 | `rootfs` | dynamic | squashfs; the kernel mounts it via ubiblock |
+| 2 | `rootfs_data` | dynamic | UBIFS overlay |
+| 127 | `provisioning` | dynamic | created by OpenWrt's `nand.sh` |
+
+`KernelB` has `compatible = "linux,ubi"`, so the kernel attaches it at boot;
+OpenWrt's ubiblock patches mount `rootfs`. The kernel takes its command line
+from the DTB only (`CONFIG_MIPS_CMDLINE_FROM_DTB`), so the bootbase's
+`ubi.mtd=1 ubi.mtd=2` never attaches bank A.
