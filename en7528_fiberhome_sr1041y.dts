@@ -1,0 +1,169 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/*
+ * FiberHome SR1041Y (HW SR1041Y_R1A), sold by TM (Unifi, Malaysia).
+ * GPON ONT + router: EN7561DU (EN7528 platform, "free bootbase" v1.1),
+ * 256 MiB DDR3, Micron MT29F2G01 256 MiB SPI-NAND, 4x GbE, MT7915 DBDC
+ * Wi-Fi 6, EN7571 xPON with an EN7570 laser driver.
+ *
+ * Flash keeps the stock layout; both kernel banks are UBI (vols ubi_kernel,
+ * ubi_rootfs, ubi_fhapp, ubi_flagA, ubi_flagB):
+ *   boot    0x0000000-0x0200000  free bootbase
+ *   KernelA 0x0200000-0x2a00000  bank A (stock ubi.mtd=1)
+ *   KernelB 0x2a00000-0x5200000  bank B (stock ubi.mtd=2)
+ *   config  0x5200000-0x7500000  UBI: factory, userdata, reserved
+ * The MACs and the Wi-Fi calibration live as files in the UBIFS "factory"
+ * volume; the kernel attaches "config" read-only and preinit mounts
+ * ubi:factory (see 79_sr1041y_factory).
+ */
+
+/dts-v1/;
+
+#include "en7528.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "FiberHome SR1041Y";
+	compatible = "fiberhome,sr1041y", "econet,en7528";
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x10000000>;
+	};
+
+	/* stdout-path comes from the dtsi (serial0); only the RAM size differs */
+	chosen {
+		linux,usable-memory-range = <0x00020000 0x0efe0000>;
+	};
+};
+
+/*
+ * The free bootbase leaves the UART's XYD fractional divider set up for a
+ * 7.3728 MHz base clock, not the 1.8432 MHz the dtsi assumes for U-Boot
+ * boards: with the default the console turns to garbage at handover.
+ */
+&uart1 {
+	clock-frequency = <7372800>;
+};
+
+&usb {
+	status = "okay";
+};
+
+/*
+ * One MT7915 (DBDC 2.4 + 5 GHz). The main function sits behind pcie1
+ * (0001:01:00.0); the board also wires its second host interface (HIF2) to
+ * pcie0, but on EN7528 mt7915e resets the SoC as soon as it binds through
+ * HIF2. On the main link alone both bands come up fine (tested), so pcie0
+ * stays disabled.
+ */
+&pcie1 {
+	status = "okay";
+};
+
+&slot1 {
+	status = "okay";
+
+	wifi@0,0 {
+		compatible = "mediatek,mt76";
+		reg = <0x0000 0 0 0 0>;
+		mediatek,eeprom-name = "mediatek/mt7915_eeprom_sr1041y.bin";
+	};
+};
+
+&eth {
+	status = "okay";
+};
+
+&gdm1 {
+	status = "okay";
+};
+
+&switch {
+	status = "okay";
+};
+
+/* the dtsi leaves the internal GbE PHYs disabled */
+&gsw_phy1 {
+	status = "okay";
+};
+
+&gsw_phy2 {
+	status = "okay";
+};
+
+&gsw_phy3 {
+	status = "okay";
+};
+
+&gsw_phy4 {
+	status = "okay";
+};
+
+&gsw_port1 {
+	label = "lan1";
+	status = "okay";
+};
+
+&gsw_port2 {
+	label = "lan2";
+	status = "okay";
+};
+
+&gsw_port3 {
+	label = "lan3";
+	status = "okay";
+};
+
+&gsw_port4 {
+	label = "lan4";
+	status = "okay";
+};
+
+&spi {
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <2>;
+		econet,bmt;
+		econet,bbt-table-size = <250>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "boot";
+				reg = <0x0 0x200000>;
+				read-only;
+			};
+
+			partition@200000 {
+				label = "KernelA";
+				reg = <0x200000 0x2800000>;
+			};
+
+			partition@2a00000 {
+				label = "KernelB";
+				reg = <0x2a00000 0x2800000>;
+			};
+
+			/*
+			 * Stock UBI (factory, userdata, reserved). The kernel
+			 * attaches it, read-only because the partition is, so
+			 * nothing can ever write to it.
+			 */
+			partition@5200000 {
+				compatible = "linux,ubi";
+				label = "config";
+				reg = <0x5200000 0x2300000>;
+				read-only;
+			};
+		};
+	};
+};
