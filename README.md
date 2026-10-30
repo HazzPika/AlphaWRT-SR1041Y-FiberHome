@@ -1,8 +1,8 @@
 # AlphaWRT for the FiberHome SR1041Y
 
 Port of [AlphaWRT](https://github.com/idiazraz/gn630v-alphawrt) (OpenWrt with
-Quick Setup, ISP presets and Pi-hole) to the FiberHome SR1041Y, the GPON ONT +
-Wi-Fi 6 router TM supplies with Unifi in Malaysia.
+Quick Setup, ISP presets and Pi-hole) to the FiberHome SR1041Y, the Wi-Fi 6
+router TM supplies with Unifi in Malaysia, behind a separate fibre box (ONT).
 
 ## Built on
 
@@ -22,7 +22,10 @@ This port stands on two projects, which are the main guides for it:
 Early bring-up. AlphaWRT installs to flash bank B and boots from it, with the
 stock firmware kept in bank A; upgrades go over LAN with `sysupgrade`. LAN,
 Wi-Fi 6 (2.4 + 5 GHz), the web UI, Pi-hole and dnsproxy run on real hardware.
-GPON (fibre) is not done yet. The first install needs the UART.
+The Internet comes in on port 1 (WAN), and Quick Setup offers router mode
+only; PPPoE on a live Unifi line is not tested yet. The first install needs the
+UART. The AlphaWRT page changes for router mode live in the fork:
+[HazzPika/SR1041Y-AlphaWRT](https://github.com/HazzPika/SR1041Y-AlphaWRT/tree/sr1041y).
 
 - [SR1041Y.md](SR1041Y.md): hardware, what works, changes to the tree, how to RAM-boot
 - [BANK-FORMAT.md](BANK-FORMAT.md): stock flash banks and the free bootbase

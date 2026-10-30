@@ -69,16 +69,46 @@ get_mac_sr1041y() {
 
 """, "get_mac_sr1041y()")
 
-patch("en7528/base-files/etc/board.d/02_network", "\tjiofiber,jcow407|\\",
-      "\tfiberhome,sr1041y|\\\n", "\tfiberhome,sr1041y|\\")
+# A router, not an ONT: port 1 is the WAN port
+patch("en7528/base-files/etc/board.d/02_network", "\ttplink,xc220-g3v)\n",
+"""\tfiberhome,sr1041y)
+		# a router, not an ONT: port 1 is the WAN port
+		ucidef_set_interfaces_lan_wan "lan2 lan3 lan4" "lan1"
+		;;
+""", "\tfiberhome,sr1041y)\n\t\t# a router")
 
 patch("en7528/base-files/etc/board.d/02_network",
       "\thuawei,hg2821t-u)\n\t\tlocal conffile",
 """\tfiberhome,sr1041y)
 		lan_mac=$(get_mac_sr1041y brmac)
+		wan_mac=$(get_mac_sr1041y internetmac)
 		[ -n "$lan_mac" ] && label_mac="$(macaddr_add $lan_mac -1)"
 		;;
 """, "lan_mac=$(get_mac_sr1041y brmac)")
+
+# No fibre: AlphaWRT's pages offer router mode only (alphawrt.board.fibre)
+write("en7528/base-files/etc/uci-defaults/05_alphawrt_board", """#!/bin/sh
+# Boards with no fibre: AlphaWRT's pages offer router mode only, with the
+# Internet on the board's WAN port
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+fiberhome,sr1041y)
+	uci -q batch <<EOF
+set alphawrt.board=board
+set alphawrt.board.fibre=0
+set alphawrt.board.wan_port=lan1
+set alphawrt.setup.mode=router
+set alphawrt.setup.port=lan1
+commit alphawrt
+EOF
+	;;
+esac
+
+exit 0
+""")
+(air / "en7528/base-files/etc/uci-defaults/05_alphawrt_board").chmod(0o755)
 
 patch("base-files/etc/hotplug.d/ieee80211/10_fix_wifi_mac", "huawei,hg2821t-u)",
 """fiberhome,sr1041y)
