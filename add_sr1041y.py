@@ -45,7 +45,8 @@ patch("image/en7528.mk", "define Device/jiofiber_en7528",
   TRX_LOADADDR := 0x80002000
   KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \\
     kernel-trx
-  DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7915-firmware
+  DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7915-firmware \\
+	wpad-mbedtls iw -wpad-basic-mbedtls
 endef
 TARGET_DEVICES += fiberhome_sr1041y
 
