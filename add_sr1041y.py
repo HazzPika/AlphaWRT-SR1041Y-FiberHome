@@ -46,7 +46,7 @@ patch("image/en7528.mk", "define Device/jiofiber_en7528",
   KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \\
     kernel-trx
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7915-firmware \\
-	wpad-mbedtls iw -wpad-basic-mbedtls
+	wpad-mbedtls iw -wpad-basic-mbedtls kmod-usb-ledtrig-usbport
 endef
 TARGET_DEVICES += fiberhome_sr1041y
 
@@ -85,6 +85,14 @@ patch("en7528/base-files/etc/board.d/02_network",
 		[ -n "$lan_mac" ] && label_mac="$(macaddr_add $lan_mac -1)"
 		;;
 """, "lan_mac=$(get_mac_sr1041y brmac)")
+
+# USB LED: on while something is plugged into the USB port (the iPhone
+# showed up on usb1-port2; usb2-port1 is the SuperSpeed side)
+patch("en7528/base-files/etc/board.d/01_leds", "  tplink,xc220-g3v)\n",
+"""  fiberhome,sr1041y)
+    ucidef_set_led_usbport "usb" "USB" "green:usb" usb1-port1 usb1-port2 usb2-port1
+    ;;
+""", "  fiberhome,sr1041y)")
 
 # No fibre: AlphaWRT's pages offer router mode only (alphawrt.board.fibre)
 write("en7528/base-files/etc/uci-defaults/05_alphawrt_board", """#!/bin/sh

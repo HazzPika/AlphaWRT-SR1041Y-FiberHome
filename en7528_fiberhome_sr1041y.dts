@@ -37,6 +37,60 @@
 	chosen {
 		linux,usable-memory-range = <0x00020000 0x0efe0000>;
 	};
+
+	aliases {
+		led-boot = &led_power;
+		led-failsafe = &led_power;
+		led-running = &led_power;
+		led-upgrade = &led_power;
+	};
+
+	/*
+	 * Pins from the stock FiberHome board driver (fhdrv_kdrv_board_impl.ko,
+	 * hwcfg 0x10001003), checked one by one on a unit. The Wi-Fi LEDs are
+	 * on the MT7915 (mt76-phy0 = 2.4 GHz, mt76-phy1 = 5 GHz).
+	 */
+	keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			gpios = <&pinctrl 20 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+
+		wps {
+			label = "wps";
+			gpios = <&pinctrl 30 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WPS_BUTTON>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led_power: led-power {
+			label = "green:power";
+			gpios = <&pinctrl 26 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+		};
+
+		/* driven by alphawrt-linemon: on with the WAN, blinks on traffic */
+		led-internet {
+			label = "green:internet";
+			gpios = <&pinctrl 27 GPIO_ACTIVE_LOW>;
+		};
+
+		led-wps {
+			label = "green:wps";
+			gpios = <&pinctrl 24 GPIO_ACTIVE_LOW>;
+		};
+
+		led-usb {
+			label = "green:usb";
+			gpios = <&pinctrl 28 GPIO_ACTIVE_LOW>;
+		};
+	};
 };
 
 /*
@@ -85,21 +139,33 @@
 	status = "okay";
 };
 
-/* the dtsi leaves the internal GbE PHYs disabled */
+/*
+ * The dtsi leaves the internal GbE PHYs disabled, and muxes gpio30-37 to
+ * their LEDs ("gbe-led"). This board has no port LEDs there: gpio30 is the
+ * WPS button. Without the pinctrl state the PHY driver only logs an error.
+ */
 &gsw_phy1 {
 	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 };
 
 &gsw_phy2 {
 	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 };
 
 &gsw_phy3 {
 	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 };
 
 &gsw_phy4 {
 	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 };
 
 &gsw_port1 {
